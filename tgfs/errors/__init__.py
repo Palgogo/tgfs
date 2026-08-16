@@ -1,8 +1,11 @@
 from .base import TechnicalError
 from .commands import (
+    DurableStoreError,
     InvalidCommandPayload,
     InvalidNodeId,
     InvalidOperationId,
+    NothingToApply,
+    OperationIdConflict,
     ProjectionPatchError,
     ProjectionStaleError,
     RootNodeNotRemovable,
@@ -13,6 +16,8 @@ from .path import (
     FileOrDirectoryDoesNotExist,
     InvalidName,
     InvalidPath,
+    IsADirectory,
+    NotADirectory,
 )
 from .telegram import FileSizeTooLarge, MessageNotFound
 from .tgfs import (
@@ -33,6 +38,8 @@ __all__ = [
     "FileOrDirectoryDoesNotExist",
     "InvalidName",
     "InvalidPath",
+    "IsADirectory",
+    "NotADirectory",
     "FileSizeTooLarge",
     "MessageNotFound",
     "MetadataNotFound",
@@ -43,9 +50,12 @@ __all__ = [
     "TaskCancelled",
     "LoginFailed",
     "DuplicatedChannelIdOrName",
+    "DurableStoreError",
     "InvalidCommandPayload",
     "InvalidNodeId",
     "InvalidOperationId",
+    "NothingToApply",
+    "OperationIdConflict",
     "ProjectionPatchError",
     "ProjectionStaleError",
     "RootNodeNotRemovable",

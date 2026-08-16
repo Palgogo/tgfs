@@ -50,6 +50,28 @@ class InvalidPath(BusinessError):
         )
 
 
+class NotADirectory(BusinessError):
+    def __init__(self, path: str):
+        message = f"Not a directory: '{path}'. Nothing can be stored below a file"
+        super().__init__(
+            message=message,
+            code=ErrorCode.NOT_A_DIRECTORY,
+            cause=message,
+            http_error=HTTPStatus.CONFLICT,
+        )
+
+
+class IsADirectory(BusinessError):
+    def __init__(self, path: str):
+        message = f"Is a directory: '{path}'. It points at no file"
+        super().__init__(
+            message=message,
+            code=ErrorCode.IS_A_DIRECTORY,
+            cause=message,
+            http_error=HTTPStatus.CONFLICT,
+        )
+
+
 class DirectoryIsNotEmpty(BusinessError):
     def __init__(self, path: str):
         message = f"Cannot remove a directory that is not empty: '{path}'"
