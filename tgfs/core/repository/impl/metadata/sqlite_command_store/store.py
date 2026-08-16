@@ -125,7 +125,13 @@ class SqliteCommandStore:
         The one join a reader would otherwise have to make itself: whether a
         row has already been acknowledged, read off the same query as the
         row, so a caller never asks the store the same question twice.
+
+        `limit` must be positive: SQLite's own `LIMIT` treats zero as an
+        empty result but a negative value as no limit at all, so passing one
+        through unchecked would turn a bounded read into an unbounded scan.
         """
+        if limit <= 0:
+            raise ValueError(f"limit must be a positive, finite bound, got {limit!r}")
         connection = self._require_open()
         async with self._lock:
             return await asyncio.to_thread(self._read_outbox, connection, after, limit)

@@ -53,6 +53,9 @@ class OutboxConsumer:
         self._transport = transport
 
     async def consume_batch(self, *, after: Cursor, limit: int) -> BatchOutcome:
+        if limit <= 0:
+            raise ValueError(f"limit must be a positive, finite bound, got {limit!r}")
+
         batch = await self._source.read_batch(after, limit)
 
         attempted: list[str] = []
