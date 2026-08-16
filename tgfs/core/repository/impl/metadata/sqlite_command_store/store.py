@@ -60,7 +60,7 @@ from .codec import (
     operation_id,
     payload_hash,
 )
-from .rows import snapshot_from_row
+from .rows import OutboxEntry, outbox_entry_from_row, snapshot_from_row
 from .schema import migrate
 
 
@@ -118,6 +118,28 @@ class SqliteCommandStore:
         connection = self._require_open()
         async with self._lock:
             return await asyncio.to_thread(self._accept, connection, command)
+
+    async def read_outbox(self, after: int, limit: int) -> list[OutboxEntry]:
+        """A bounded page of the outbox, in durable sequence order.
+
+        The one join a reader would otherwise have to make itself: whether a
+        row has already been acknowledged, read off the same query as the
+        row, so a caller never asks the store the same question twice.
+        """
+        connection = self._require_open()
+        async with self._lock:
+            return await asyncio.to_thread(self._read_outbox, connection, after, limit)
+
+    async def acknowledge_outbox(self, sequence: int) -> None:
+        """Durably remember that `sequence` was delivered.
+
+        Idempotent: acknowledging a sequence that was already acknowledged
+        changes nothing, because a retrying caller cannot tell whether its
+        first attempt's acknowledgement made it to disk.
+        """
+        connection = self._require_open()
+        async with self._lock:
+            await asyncio.to_thread(self._acknowledge_outbox, connection, sequence)
 
     def pragma(self, name: str) -> Any:
         """What this connection is actually set to.
@@ -307,6 +329,30 @@ class SqliteCommandStore:
             nodes[snapshot.node_id] = snapshot
 
         return Projection(revision=self._revision(connection), nodes=MappingProxyType(nodes))
+
+    @staticmethod
+    def _read_outbox(
+        connection: sqlite3.Connection, after: int, limit: int
+    ) -> list[OutboxEntry]:
+        rows = _guard(
+            connection,
+            "SELECT outbox.sequence, outbox.operation_id, outbox.command_json, "
+            "       outbox_ack.sequence AS acknowledged "
+            "FROM outbox LEFT JOIN outbox_ack "
+            "       ON outbox_ack.sequence = outbox.sequence "
+            "WHERE outbox.sequence > ? "
+            "ORDER BY outbox.sequence LIMIT ?",
+            (after, limit),
+        ).fetchall()
+        return [outbox_entry_from_row(row) for row in rows]
+
+    @staticmethod
+    def _acknowledge_outbox(connection: sqlite3.Connection, sequence: int) -> None:
+        _guard(
+            connection,
+            "INSERT OR IGNORE INTO outbox_ack (sequence) VALUES (?)",
+            (sequence,),
+        )
 
     @staticmethod
     def _revision(connection: sqlite3.Connection) -> int:

@@ -18,7 +18,7 @@ from typing import Any
 from tgfs.core.commands import ROOT_NODE_ID
 from tgfs.errors import DurableStoreError
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Node kinds as they are spelled on disk. They are NodeKind's values, restated
 # as a CHECK so the file rejects a kind this code would not recognise.
@@ -88,8 +88,18 @@ _SEED_ROOT = (
 # A migration is a numbered list of statements, each with whatever it binds.
 Statement = tuple[str, tuple[Any, ...]]
 
+_ACK_TABLE = """
+    CREATE TABLE outbox_ack (
+        -- A row's presence is the acknowledgement; there is nothing else to
+        -- say about one, so there is nothing else to store.
+        sequence INTEGER PRIMARY KEY
+                 REFERENCES outbox (sequence) DEFERRABLE INITIALLY DEFERRED
+    ) STRICT
+"""
+
 _MIGRATIONS: tuple[tuple[int, tuple[Statement, ...]], ...] = (
     (1, tuple((sql, ()) for sql in _INITIAL) + (_SEED_ROOT,)),
+    (2, ((_ACK_TABLE, ()),)),
 )
 
 
