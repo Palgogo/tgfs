@@ -13,8 +13,14 @@ from typing import Optional
 
 from tgfs.core.model import TGFSDirectory
 
+from .provenance import SourceDescriptor, TargetDescriptor, utc_now
+
 _DIRECTORY = "D"
 _FILE_REF = "FR"
+
+
+class AmbiguousPath(Exception):
+    """A tree assigns more than one node to the same logical path."""
 
 
 @dataclass(frozen=True)
@@ -41,12 +47,21 @@ class ReconciliationReport:
     missing_in_target: tuple[str, ...]
     extra_in_target: tuple[str, ...]
     mismatches: tuple[NodeMismatch, ...]
+    source_descriptor: Optional[SourceDescriptor] = None
+    target_descriptor: Optional[TargetDescriptor] = None
+    completed_at: Optional[str] = None
 
 
-def reconcile(source: TGFSDirectory, target: TGFSDirectory) -> ReconciliationReport:
+def reconcile(
+    source: TGFSDirectory,
+    target: TGFSDirectory,
+    *,
+    source_descriptor: Optional[SourceDescriptor] = None,
+    target_descriptor: Optional[TargetDescriptor] = None,
+) -> ReconciliationReport:
     """A structured diff of two directory trees, read-only on both sides."""
-    source_entries = _flatten(source)
-    target_entries = _flatten(target)
+    source_entries = flatten(source)
+    target_entries = flatten(target)
 
     missing = tuple(sorted(set(source_entries) - set(target_entries)))
     extra = tuple(sorted(set(target_entries) - set(source_entries)))
@@ -65,6 +80,9 @@ def reconcile(source: TGFSDirectory, target: TGFSDirectory) -> ReconciliationRep
         missing_in_target=missing,
         extra_in_target=extra,
         mismatches=mismatches,
+        source_descriptor=source_descriptor,
+        target_descriptor=target_descriptor,
+        completed_at=utc_now(),
     )
 
 
@@ -82,20 +100,36 @@ def _count(entries: dict[str, _Entry], kind: str) -> int:
     return sum(1 for entry in entries.values() if entry.kind == kind)
 
 
-def _flatten(directory: TGFSDirectory, path: str = "") -> dict[str, _Entry]:
+def flatten(directory: TGFSDirectory, path: str = "") -> dict[str, _Entry]:
+    """Every node under `directory`, by its logical path.
+
+    Raises `AmbiguousPath` rather than letting a later entry silently
+    overwrite an earlier one: a tree that assigns two nodes to the same path
+    is not a tree reconciliation (or an import) can read unambiguously.
+    """
     entries: dict[str, _Entry] = {}
 
     for child in directory.find_dirs():
         child_path = f"{path}/{child.name}"
-        entries[child_path] = _Entry(kind=_DIRECTORY, message_id=None)
-        entries.update(_flatten(child, child_path))
+        _record(entries, child_path, _Entry(kind=_DIRECTORY, message_id=None))
+        entries.update(flatten(child, child_path))
 
     for file_ref in directory.find_files():
-        entries[f"{path}/{file_ref.name}"] = _Entry(
-            kind=_FILE_REF, message_id=file_ref.message_id
+        file_path = f"{path}/{file_ref.name}"
+        _record(
+            entries, file_path, _Entry(kind=_FILE_REF, message_id=file_ref.message_id)
         )
 
     return entries
 
 
-__all__ = ["NodeMismatch", "ReconciliationReport", "reconcile"]
+def _record(entries: dict[str, _Entry], path: str, entry: _Entry) -> None:
+    if path in entries:
+        raise AmbiguousPath(
+            f"{path!r} is assigned to more than one node: cannot reconcile "
+            "an ambiguous tree"
+        )
+    entries[path] = entry
+
+
+__all__ = ["AmbiguousPath", "NodeMismatch", "ReconciliationReport", "flatten", "reconcile"]

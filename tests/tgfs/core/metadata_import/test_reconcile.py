@@ -5,8 +5,10 @@ report `reconcile` produces about how they differ. Each test builds both sides
 by hand so the classification under test is the only thing that varies.
 """
 
-from tgfs.core.metadata_import.reconcile import NodeMismatch, reconcile
-from tgfs.core.model import TGFSDirectory
+import pytest
+
+from tgfs.core.metadata_import.reconcile import AmbiguousPath, NodeMismatch, reconcile
+from tgfs.core.model import TGFSDirectory, TGFSFileRef
 
 
 def _tree() -> TGFSDirectory:
@@ -111,6 +113,28 @@ class TestMessageIdMismatch:
                 target_value=12,
             ),
         )
+
+
+class TestAmbiguousPathIsRejected:
+    def test_two_sibling_directories_with_the_same_name_are_rejected_not_merged(self):
+        # Built by hand rather than through `create_dir`, which would itself
+        # refuse the collision - this stands in for a source that is not
+        # internally consistent, which reconciliation must still refuse to
+        # silently flatten into one entry.
+        root = TGFSDirectory.root_dir()
+        root.children.append(TGFSDirectory(name="dup", parent=root))
+        root.children.append(TGFSDirectory(name="dup", parent=root))
+
+        with pytest.raises(AmbiguousPath):
+            reconcile(root, TGFSDirectory.root_dir())
+
+    def test_a_directory_and_a_file_sharing_a_name_are_rejected_not_merged(self):
+        root = TGFSDirectory.root_dir()
+        root.children.append(TGFSDirectory(name="dup", parent=root))
+        root.files.append(TGFSFileRef(message_id=1, name="dup", location=root))
+
+        with pytest.raises(AmbiguousPath):
+            reconcile(root, TGFSDirectory.root_dir())
 
 
 class TestNameAndParentMismatch:

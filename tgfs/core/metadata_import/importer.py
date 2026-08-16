@@ -20,11 +20,24 @@ from tgfs.core.model import TGFSDirectory
 from tgfs.core.repository.impl.metadata.sqlite_command_store import SqliteCommandStore
 from tgfs.core.repository.impl.metadata.sqlite_metadata import SqliteMetadataRepository
 
-from .reconcile import ReconciliationReport, reconcile
+from .provenance import SourceDescriptor, TargetDescriptor, utc_now
+from .reconcile import AmbiguousPath, ReconciliationReport, flatten, reconcile
 
 
-class TargetNotEmpty(Exception):
-    """Refused: the target already holds directories or files."""
+class TargetPathExists(Exception):
+    """Refused: a database (or any file) already exists at the target path.
+
+    Only a path that names nothing is accepted - an existing file, even an
+    empty one, is not "an empty database" this could safely open and treat as
+    fresh.
+    """
+
+
+class MalformedSource(Exception):
+    """Refused before writing: the source tree assigns more than one node to
+    the same logical path, so there is nothing unambiguous to import. Raised
+    ahead of opening the target, which is why no target database exists after
+    this is raised."""
 
 
 class ImportFailed(Exception):
@@ -33,6 +46,10 @@ class ImportFailed(Exception):
 
 @dataclass(frozen=True)
 class ImportResult:
+    source_descriptor: SourceDescriptor
+    target_descriptor: TargetDescriptor
+    started_at: str
+    completed_at: str
     source_dir_count: int
     source_file_count: int
     target_dir_count: int
@@ -50,21 +67,33 @@ class _Progress:
 
 
 async def import_metadata(
-    source: TGFSDirectory, target_path: Union[str, Path]
+    source: TGFSDirectory,
+    target_path: Union[str, Path],
+    *,
+    source_descriptor: SourceDescriptor,
 ) -> ImportResult:
     """Translate every node of `source` into P1b commands against a fresh store.
 
-    Refuses a target that is not empty, refuses to leave a failure looking like
-    a partial success, and reopens what it wrote before reporting it as done -
-    the durable projection, not the in-memory tree just built, is what is
-    checked against the source.
+    Refuses a target path that already exists - before ever opening it - and
+    refuses a source with an ambiguous path before that, so neither check can
+    leave a target database behind. Refuses to leave a later failure looking
+    like a partial success, and reopens what it wrote before reporting it as
+    done - the durable projection, not the in-memory tree just built, is what
+    is checked against the source.
     """
+    target_path = Path(target_path)
+    if target_path.exists():
+        raise TargetPathExists(str(target_path))
+
+    _preflight(source)
+
+    target_descriptor = TargetDescriptor.of(target_path)
+    started_at = utc_now()
+
     repository = SqliteMetadataRepository(target_path)
     try:
         await repository.init()
         root = repository.root()
-        if root.find_dirs() or root.find_files():
-            raise TargetNotEmpty(str(target_path))
 
         progress = _Progress()
         started = time.monotonic()
@@ -73,8 +102,9 @@ async def import_metadata(
             await repository.push()
         except Exception as ex:
             raise ImportFailed(
-                f"import into {target_path} failed after {progress.dirs} "
-                f"directories and {progress.files} file refs: {ex}"
+                f"import into {target_descriptor.path} failed after "
+                f"{progress.dirs} directories and {progress.files} file refs: "
+                f"{ex}"
             ) from ex
         elapsed = time.monotonic() - started
     finally:
@@ -84,20 +114,30 @@ async def import_metadata(
     reopened = SqliteMetadataRepository(target_path)
     try:
         await reopened.init()
-        report = reconcile(source, reopened.root())
+        report = reconcile(
+            source,
+            reopened.root(),
+            source_descriptor=source_descriptor,
+            target_descriptor=target_descriptor,
+        )
         reopen_elapsed = time.monotonic() - reopen_started
     finally:
         await reopened.close()
 
     if not report.equal:
         raise ImportFailed(
-            f"the reopened target {target_path} does not match the source: "
-            f"{report}"
+            f"the reopened target {target_descriptor.path} does not match "
+            f"the source: {report}"
         )
 
     revision = await _durable_revision(target_path)
+    completed_at = utc_now()
 
     return ImportResult(
+        source_descriptor=source_descriptor,
+        target_descriptor=target_descriptor,
+        started_at=started_at,
+        completed_at=completed_at,
         source_dir_count=report.source_dir_count,
         source_file_count=report.source_file_count,
         target_dir_count=report.target_dir_count,
@@ -107,6 +147,18 @@ async def import_metadata(
         durable_revision=revision,
         reconciliation=report,
     )
+
+
+def _preflight(source: TGFSDirectory) -> None:
+    """Reject an internally ambiguous source before any target is touched.
+
+    Read-only on `source`: `flatten` only ever calls `find_dirs`/`find_files`,
+    the same boundary the importer itself is held to.
+    """
+    try:
+        flatten(source)
+    except AmbiguousPath as ex:
+        raise MalformedSource(str(ex)) from ex
 
 
 def _import_children(
@@ -134,4 +186,10 @@ async def _durable_revision(target_path: Union[str, Path]) -> int:
         await store.close()
 
 
-__all__ = ["ImportFailed", "ImportResult", "TargetNotEmpty", "import_metadata"]
+__all__ = [
+    "ImportFailed",
+    "ImportResult",
+    "MalformedSource",
+    "TargetPathExists",
+    "import_metadata",
+]

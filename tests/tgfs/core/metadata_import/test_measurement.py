@@ -11,7 +11,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tgfs.core.metadata_import.importer import import_metadata
+from tgfs.core.metadata_import.provenance import SourceDescriptor
 from tgfs.core.model import TGFSDirectory
+
+_SOURCE_DESCRIPTOR = SourceDescriptor(repository="octo/demo", ref="deadbeef")
 
 DEPTH = 3
 BREADTH = 5
@@ -60,7 +63,9 @@ class TestBoundedMeasurement:
         assert counts.dirs > 100  # big enough to be a namespace, not a fixture
 
         test_started = time.monotonic()
-        result = await import_metadata(source, target_path)
+        result = await import_metadata(
+            source, target_path, source_descriptor=_SOURCE_DESCRIPTOR
+        )
         test_elapsed = time.monotonic() - test_started
 
         assert result.source_dir_count == counts.dirs
