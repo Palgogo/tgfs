@@ -1,4 +1,12 @@
 from .base import TechnicalError
+from .commands import (
+    InvalidCommandPayload,
+    InvalidNodeId,
+    InvalidOperationId,
+    ProjectionPatchError,
+    ProjectionStaleError,
+    RootNodeNotRemovable,
+)
 from .path import (
     DirectoryIsNotEmpty,
     FileOrDirectoryAlreadyExists,
@@ -35,4 +43,10 @@ __all__ = [
     "TaskCancelled",
     "LoginFailed",
     "DuplicatedChannelIdOrName",
+    "InvalidCommandPayload",
+    "InvalidNodeId",
+    "InvalidOperationId",
+    "ProjectionPatchError",
+    "ProjectionStaleError",
+    "RootNodeNotRemovable",
 ]
