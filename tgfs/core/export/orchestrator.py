@@ -76,6 +76,9 @@ class ExportOrchestrator:
         batch_id: str,
         expected_snapshot: SnapshotId,
     ) -> ExportOutcome:
+        if limit <= 0:
+            raise ValueError(f"limit must be a positive, finite bound, got {limit!r}")
+
         batch = await self._source.read_batch(after, limit)
         cursor = batch.records[-1].sequence if batch.records else after
         already_acknowledged = tuple(
