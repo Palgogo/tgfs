@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 from tgfs.config import (
     WebDAVConfig,
@@ -12,6 +14,8 @@ from tgfs.config import (
     MetadataConfig,
     MetadataType,
     MetadataConfigDict,
+    SqliteMetadataConfig,
+    expand_path,
 )
 
 
@@ -170,6 +174,87 @@ class TestMetadataConfig:
             MetadataConfig.from_dict(
                 MetadataConfigDict(type="unknown_type", name="name", github_repo=None)
             )
+
+
+class TestSqliteMetadataConfig:
+    """The local store is configuration a deployment has to ask for by name.
+
+    Nothing here is reachable by default: a configuration that does not say
+    'sqlite' keeps whichever backend it already had.
+    """
+
+    def test_omitted_type_is_still_pinned_message(self):
+        config = MetadataConfig.from_dict(
+            cast(MetadataConfigDict, {"name": "name", "github_repo": None})
+        )
+
+        assert config.type == MetadataType.PINNED_MESSAGE
+        assert config.sqlite is None
+
+    def test_github_repo_carries_no_local_store(self):
+        config = MetadataConfig.from_dict(
+            MetadataConfigDict(
+                type="github_repo",
+                name="name",
+                github_repo={
+                    "repo": "owner/repo",
+                    "commit": "main",
+                    "access_token": "token123",
+                },
+            )
+        )
+
+        assert config.type == MetadataType.GITHUB_REPO
+        assert config.sqlite is None
+
+    def test_from_dict_sqlite(self, tmp_path):
+        db = tmp_path / "metadata.sqlite3"
+
+        config = MetadataConfig.from_dict(
+            MetadataConfigDict(
+                type="sqlite",
+                name="name",
+                github_repo=None,
+                sqlite={"path": str(db)},
+            )
+        )
+
+        assert config.type == MetadataType.SQLITE
+        assert config.github_repo is None
+        assert config.sqlite is not None
+        assert config.sqlite.path == str(db)
+
+    def test_relative_path_is_resolved_under_the_data_dir(self):
+        config = MetadataConfig.from_dict(
+            MetadataConfigDict(
+                type="sqlite",
+                name="name",
+                github_repo=None,
+                sqlite={"path": "metadata.sqlite3"},
+            )
+        )
+
+        assert config.sqlite is not None
+        assert config.sqlite.path == expand_path("metadata.sqlite3")
+
+    def test_sqlite_without_its_section_is_refused(self):
+        with pytest.raises(ValueError, match="metadata -> sqlite"):
+            MetadataConfig.from_dict(
+                MetadataConfigDict(type="sqlite", name="name", github_repo=None)
+            )
+
+    def test_sqlite_without_a_path_is_refused(self):
+        with pytest.raises(ValueError, match="metadata -> sqlite -> path"):
+            MetadataConfig.from_dict(
+                MetadataConfigDict(
+                    type="sqlite", name="name", github_repo=None, sqlite={}
+                )
+            )
+
+    def test_sqlite_config_from_dict(self, tmp_path):
+        config = SqliteMetadataConfig.from_dict({"path": str(tmp_path / "m.sqlite3")})
+
+        assert config.path == str(tmp_path / "m.sqlite3")
 
 
 class TestConfig:

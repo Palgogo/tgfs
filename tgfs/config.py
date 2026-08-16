@@ -2,7 +2,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Literal, Optional, Self, TypedDict
+from typing import Dict, List, Literal, NotRequired, Optional, Self, TypedDict
 
 import yaml
 
@@ -80,15 +80,37 @@ class GithubRepoConfig:
         )
 
 
+@dataclass
+class SqliteMetadataConfig:
+    """Where the local metadata store keeps its file.
+
+    A path and nothing else: this backend talks to no service, so there is no
+    credential to configure and none to leak into a configuration file.
+    """
+
+    path: str
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Self:
+        if not (path := data.get("path")):
+            raise ValueError(
+                "configuration tgfs -> metadata -> sqlite -> path is required: "
+                "the local metadata store is a file and has to be named."
+            )
+        return cls(path=expand_path(path))
+
+
 class MetadataType(Enum):
     PINNED_MESSAGE = "pinned_message"
     GITHUB_REPO = "github_repo"
+    SQLITE = "sqlite"
 
 
 class MetadataConfigDict(TypedDict):
     name: str
     type: str
     github_repo: Optional[Dict]
+    sqlite: NotRequired[Optional[Dict]]
 
 
 @dataclass
@@ -96,6 +118,9 @@ class MetadataConfig:
     name: str
     type: MetadataType
     github_repo: Optional[GithubRepoConfig]
+    # Off unless a configuration names it. Every other metadata type leaves this
+    # None, so nothing can reach the local store by defaulting into it.
+    sqlite: Optional[SqliteMetadataConfig] = None
 
     @classmethod
     def from_dict(cls, data: MetadataConfigDict) -> Self:
@@ -117,6 +142,21 @@ class MetadataConfig:
                 name=data.get("name", "default"),
                 type=MetadataType.GITHUB_REPO,
                 github_repo=GithubRepoConfig.from_dict(gh_repo_config),
+            )
+        if data["type"] == MetadataType.SQLITE.value:
+            # Refused here rather than when the store is first written to: a
+            # deployment that cannot say where its metadata lives should not
+            # start and then discover it on the first mutation.
+            if (sqlite_config := data.get("sqlite")) is None:
+                raise ValueError(
+                    "configuration tgfs -> metadata -> sqlite is required for the "
+                    "sqlite metadata type"
+                )
+            return cls(
+                name=data.get("name", "default"),
+                type=MetadataType.SQLITE,
+                github_repo=None,
+                sqlite=SqliteMetadataConfig.from_dict(sqlite_config),
             )
         raise ValueError(
             f"Unknown metadata type: {data['type']}, available options: {', '.join(e.value for e in MetadataType)}"

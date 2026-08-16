@@ -49,6 +49,19 @@ class Client:
             metadata_repo: IMetaDataRepository = TGMsgMetadataRepository(
                 message_api, fc_repo
             )
+        elif metadata_cfg.type == MetadataType.SQLITE:
+            # Only ever reached by a configuration that names this type. The
+            # local store is not a fallback for anything: nothing arrives here
+            # by omission or by a backend being unavailable.
+            if (sqlite_config := metadata_cfg.sqlite) is None:
+                raise ValueError(
+                    "configuration tgfs -> metadata -> sqlite -> path is required."
+                )
+            from tgfs.core.repository.impl.metadata.sqlite_metadata import (
+                SqliteMetadataRepository,
+            )
+
+            metadata_repo = SqliteMetadataRepository(sqlite_config.path)
         else:
             if (github_repo_config := metadata_cfg.github_repo) is None:
                 raise ValueError(
