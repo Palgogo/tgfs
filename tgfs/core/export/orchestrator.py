@@ -24,6 +24,7 @@ from .protocol import (
     ApplyStatus,
     RemoteApplyError,
     RemoteSnapshotProtocol,
+    RemoteUnavailableError,
     SnapshotId,
 )
 
@@ -36,6 +37,7 @@ class ExportStatus(Enum):
     REJECTED = "rejected"
     MALFORMED = "malformed"
     TERMINAL_ERROR = "terminal_error"
+    RETRYABLE_ERROR = "retryable_error"
 
 
 _APPLY_STATUS_TO_EXPORT_STATUS = {
@@ -130,6 +132,15 @@ class ExportOrchestrator:
             return ExportOutcome(
                 status=ExportStatus.TERMINAL_ERROR,
                 reason=str(e),
+                attempted_event_ids=attempted,
+                acknowledged_event_ids=already_acknowledged,
+                next_cursor=after,
+                next_snapshot=None,
+            )
+        except RemoteUnavailableError as e:
+            return ExportOutcome(
+                status=ExportStatus.RETRYABLE_ERROR,
+                reason=e.reason,
                 attempted_event_ids=attempted,
                 acknowledged_event_ids=already_acknowledged,
                 next_cursor=after,

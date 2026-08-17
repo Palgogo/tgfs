@@ -35,6 +35,30 @@ class RemoteApplyError(Exception):
     """The remote definitely did not apply the batch and will not on retry."""
 
 
+_RETRYABLE_REASONS = frozenset(
+    {
+        "remote_unavailable",
+        "remote_rate_limited",
+        "remote_timeout_unresolved",
+    }
+)
+
+
+class RemoteUnavailableError(Exception):
+    """The remote could not complete the attempt; the same batch may succeed if retried unchanged."""
+
+    reason: str
+
+    def __init__(self, reason: str) -> None:
+        if reason not in _RETRYABLE_REASONS:
+            raise ValueError(
+                "reason must be one of: "
+                + ", ".join(sorted(_RETRYABLE_REASONS))
+            )
+        self.reason = reason
+        super().__init__(reason)
+
+
 class RemoteSnapshotProtocol(Protocol):
     async def current_snapshot(self) -> SnapshotId: ...
 
